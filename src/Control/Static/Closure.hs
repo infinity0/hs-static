@@ -49,10 +49,6 @@ applyClosure
 applyClosure (SKeyedInternal k cl) arg =
   skeyedInternalToExternal (SKeyedInternal k arg)
 
--- | Create a 'ClosureApply' in its serialisable static form.
-applyClosure' :: RepVal g arg k => SKey k -> arg -> ClosureApply g
-applyClosure' k arg = skeyedInternalToExternal (SKeyedInternal k arg)
-
 -- | A pre-closure is a function that takes two statically-known arguments:
 -- a constraint, and an explicit argument; and gives a closure.
 --

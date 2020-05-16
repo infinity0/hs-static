@@ -21,7 +21,6 @@ module Control.Static
   , PostClosure(..)
   , ClosureApply
   , applyClosure
-  , applyClosure'
   , mkClosureTab
   , RepClosure
   , RepClosure'

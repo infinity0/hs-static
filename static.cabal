@@ -68,6 +68,11 @@ Description:
       different serialisation frameworks. Instances for 'Data.Binary' and
       'Codec.Serialise' are provided here for convenience.
 
+  *   We have additional Template Haskell splices that support creating static
+      values from top-level definitions that must refer to other static values,
+      whether they be recursive or mutually-recursive or neither. This is
+      achieved using an implementation of @mfix@ for the @Q@ monad.
+
   We did /not/ implement the ability to compose static references. The main
   reason is that, in our view, the /purpose/ of static closures is to represent
   which top-level tasks to execute, and the inputs to execute it on. This is
@@ -79,7 +84,7 @@ Description:
 
   If your /interface/ is actually "run arbitrary user-defined code" (e.g. in a
   VM or EDSL evaluator) then it would indeed make sense to support composition,
-  but then you should define your own AST, evaluator, and serialiser for this,
+  but then you should define your own AST, evaluator, and serialiser for this;
   and pass the ASTs around as regular runtime values, not static values.
   Supporting arbitrary ASTs like this is outside of the scope of this library.
 

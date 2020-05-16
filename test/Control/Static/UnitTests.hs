@@ -26,9 +26,10 @@ import           Control.Monad.Writer.Class (MonadWriter (..))
 import           Control.Static             (ClosureApply, DSerialise,
                                              NullC2Sym0, RepVal (..),
                                              TCTab (..), applyClosure,
-                                             applyClosure', evalSomeClosure,
-                                             mkClosureTab, repClosureTab)
-import           Control.Static.TH          (mkStaticTab, staticKey,
+                                             evalSomeClosure, mkClosureTab,
+                                             repClosureTab)
+import           Control.Static.TH          (mkDefStaticTab, mkStatics,
+                                             mkStaticsWithRefs, staticKey,
                                              staticKeyType, staticRef)
 
 -- These unit tests are written to showcase all the features & possibilities of
@@ -36,13 +37,17 @@ import           Control.Static.TH          (mkStaticTab, staticKey,
 -- it is actually doing. When using this library, bear this in mind and don't
 -- just blindly copy the below - aim to simplify as much of it as possible.
 
-writeLog :: MonadWriter [String] m => () -> String -> m [Int]
-writeLog _ x = tell [x] >> pure []
-
 data TEnv m g = TEnv {
     pushTask :: !(ClosureApply g -> m ())
   , pushLog  :: !(String -> m ())
 }
+
+writeLog :: MonadWriter [String] m => () -> String -> m [Int]
+writeLog _ x = tell [x] >> pure []
+mkStatics ['writeLog]
+-- note: the above call to mkStatics is actually redundant; mkDefStaticTab
+-- automatically will do this for any passed-in names that did not already have
+-- statics created for them. We call it here for demonstration purposes.
 
 collatzCycle0 :: [Integer]
 collatzCycle0 = [0]
@@ -57,45 +62,47 @@ collatzCycle4 =
   [-17, -50, -25, -74, -37, -110, -55, -164, -82, -41]
     ++ [-122, -61, -182, -91, -272, -136, -68, -34]
 
-collatz
-  :: RepVal g Integer $(staticKeyType 'collatzOdd)
-  => RepVal g Integer $(staticKeyType 'collatzEven)
-  => Monad m => TEnv m g -> Integer -> m [Int]
-collatz env x = do
-  pushLog $ "got: " <> show x
-  if
-    | x `elem` collatzCycle0 -> pure [0]
-    | x `elem` collatzCycle1 -> pure [1]
-    | x `elem` collatzCycle2 -> pure [2]
-    | x `elem` collatzCycle3 -> pure [3]
-    | x `elem` collatzCycle4 -> pure [4]
-    | x `mod` 2 == 1 -> do
-      pushTask (applyClosure' $(staticKey 'collatzOdd) x)
-      pure []
-    | otherwise -> do
-      pushTask (applyClosure' $(staticKey 'collatzEven) x)
-      pure []
-  where TEnv {..} = env
+mkStaticsWithRefs $ \(~[collatz', collatzOdd', collatzEven']) -> [d|
+  collatz
+    :: RepVal g Integer $(staticKeyType 'collatzOdd)
+    => RepVal g Integer $(staticKeyType 'collatzEven)
+    => Monad m => TEnv m g -> Integer -> m [Int]
+  collatz env x = do
+    pushLog $ "got: " <> show x
+    if
+      | x `elem` collatzCycle0 -> pure [0]
+      | x `elem` collatzCycle1 -> pure [1]
+      | x `elem` collatzCycle2 -> pure [2]
+      | x `elem` collatzCycle3 -> pure [3]
+      | x `elem` collatzCycle4 -> pure [4]
+      | x `mod` 2 == 1 -> do
+        pushTask (applyClosure $(pure collatzOdd') x)
+        pure []
+      | otherwise -> do
+        pushTask (applyClosure $(pure collatzEven') x)
+        pure []
+    where TEnv {..} = env
 
-collatzOdd
-  :: RepVal g Integer $(staticKeyType 'collatz)
-  => Monad m => TEnv m g -> Integer -> m [Int]
-collatzOdd env x = do
-  pushLog $ "got odd: " <> show x
-  pushTask (applyClosure' $(staticKey 'collatz) (3 * x + 1))
-  pure []
-  where TEnv {..} = env
+  collatzOdd
+    :: RepVal g Integer $(staticKeyType 'collatz)
+    => Monad m => TEnv m g -> Integer -> m [Int]
+  collatzOdd env x = do
+    pushLog $ "got odd: " <> show x
+    pushTask (applyClosure $(pure collatz') (3 * x + 1))
+    pure []
+    where TEnv {..} = env
 
-collatzEven
-  :: RepVal g Integer $(staticKeyType 'collatz)
-  => Monad m => TEnv m g -> Integer -> m [Int]
-collatzEven env x = do
-  pushLog $ "got even: " <> show x
-  pushTask (applyClosure' $(staticKey 'collatz) (x `div` 2))
-  pure []
-  where TEnv {..} = env
+  collatzEven
+    :: RepVal g Integer $(staticKeyType 'collatz)
+    => Monad m => TEnv m g -> Integer -> m [Int]
+  collatzEven env x = do
+    pushLog $ "got even: " <> show x
+    pushTask (applyClosure $(pure collatz') (x `div` 2))
+    pure []
+    where TEnv {..} = env
+  |]
 
-mkStaticTab ['writeLog, 'collatz, 'collatzOdd, 'collatzEven]
+mkDefStaticTab ['writeLog, 'collatz, 'collatzOdd, 'collatzEven]
 
 -- In most use-cases, you don't need to distinguish between the tasks, and
 -- 'TaskArg' (further below) is simpler and better . On the off-chance that you
@@ -195,14 +202,14 @@ tests = testGroup
     runAllTasks @Task @(RWST () [String] [ClosureApply Task])
       monadEnv
       (`evalRWST` ())
-      [applyClosure' $(staticKey 'collatz) (4 :: Integer)]
+      [applyClosure $(staticRef 'collatz) (4 :: Integer)]
       3
       ["got: 4", "result: cycle #1"]
   , testCase "smoke @TaskArg" $ do
     runAllTasks @TaskArg @(RWST () [String] [ClosureApply TaskArg])
       monadEnv
       (`evalRWST` ())
-      [applyClosure' $(staticKey 'collatz) (30 :: Integer)]
+      [applyClosure $(staticRef 'collatz) (30 :: Integer)]
       67
       (  ["got: 30", "got even: 30", "got: 15", "got odd: 15", "got: 46"]
       ++ ["got even: 46", "got: 23", "got odd: 23", "got: 70", "got even: 70"]
@@ -216,7 +223,7 @@ tests = testGroup
     runAllTasks @DSerialise @(RWST () [String] [ClosureApply DSerialise])
       monadEnv
       (`evalRWST` ())
-      [applyClosure' $(staticKey 'collatz) (-30 :: Integer)]
+      [applyClosure $(staticRef 'collatz) (-30 :: Integer)]
       39
       (  ["got: -30", "got even: -30", "got: -15", "got odd: -15", "got: -44"]
       ++ ["got even: -44", "got: -22", "got even: -22", "got: -11"]

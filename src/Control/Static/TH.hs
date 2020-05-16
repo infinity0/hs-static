@@ -8,16 +8,22 @@ module Control.Static.TH
   ( staticRef
   , staticKey
   , staticKeyType
+  , mkStatics
+  , mkStaticsWithRefs
+  , defaultStaticTab
+  , mkDefStaticTab
   , mkStaticTab
-  , mkStaticTab'
   -- special utils some users might need
   , CxtW(..)
   )
 where
 
 -- external
+import           Control.Concurrent.MVar  (newEmptyMVar, putMVar, takeMVar)
+import           Data.Functor             (($>))
 import           Data.List                (unzip5)
 import           Data.Singletons          (type (@@), sing)
+import           GHC.IO.Unsafe            (unsafeDupableInterleaveIO)
 import           Language.Haskell.TH
 
 -- internal
@@ -25,19 +31,54 @@ import           Control.Static.Common    (CxtW (..), TCTab (..), TTab)
 import           Control.Static.Serialise (SKeyedInternal (..))
 
 
+-- | Needed for 'mkStaticsWithRefs', definition taken from
+-- https://gitlab.haskell.org/ghc/ghc/issues/12073
+mfixQ :: (b -> Q b) -> Q b
+mfixQ k = do
+  m      <- runIO newEmptyMVar
+  ans    <- runIO (unsafeDupableInterleaveIO (takeMVar m))
+  result <- k ans
+  runIO (putMVar m result)
+  pure result
+
+-- | Create top-level statically-keyed values from regular top-level values.
+mkStatics :: [Name] -> Q [Dec]
+mkStatics ns = mapM getType ns >>= createStatics Nothing
+
+-- | Create top-level statically-keyed values from regular top-level values,
+-- when their definitions need to refer to other statically-keyed values.
+--
+-- Since TH cannot handle references to names defined later in the source file,
+-- it is not possible to use 'mkStatics' for this purpose; you must use this
+-- function instead, and then register the names later using 'mkStaticTab'.
+--
+-- See unit tests for example usage.
+mkStaticsWithRefs :: ([Exp] -> Q [Dec]) -> Q [Dec]
+mkStaticsWithRefs mkDecs = do
+  statics  <- mfixQ f
+  decls    <- mkDecs statics
+  closures <- createStatics Nothing (sigsOf decls)
+  pure $ decls <> closures
+ where
+  -- note: f must be like this; as per the contract to 'mfix' one must not
+  -- evaluate its argument in the definition, or we'll get an infinite loop
+  f :: ([Exp] -> Q [Exp])
+  f statics = do
+    decls <- mkDecs statics
+    traverse (staticRef . fst) (sigsOf decls)
+
+defaultStaticTab :: Name
+defaultStaticTab = mkName "staticTab"
+
 -- | Create a table holding the static values for a list of top-level names,
 -- binding it to the top-level name "staticTab".
-mkStaticTab :: [Name] -> Q [Dec]
-mkStaticTab = mkStaticTab' (mkName "staticTab")
+mkDefStaticTab :: [Name] -> Q [Dec]
+mkDefStaticTab = mkStaticTab defaultStaticTab
 
 -- | Create a table holding the static values for a list of top-level names,
 -- binding it to the given top-level name.
-mkStaticTab' :: Name -> [Name] -> Q [Dec]
-mkStaticTab' tabName ns = do
-  types     <- mapM getType ns
-  (closures, tyVars, keys, vals, inserts) <- unzip5 <$> mapM generateDefs types
-  staticTab <- createMetaData tabName (concat tyVars) keys vals inserts
-  pure $ concat closures ++ staticTab
+mkStaticTab :: Name -> [Name] -> Q [Dec]
+mkStaticTab tabName ns = mapM getType ns >>= createStatics (Just tabName)
 
 -- | Refer to a static value, as a 'SKeyedInternal'.
 --
@@ -49,17 +90,10 @@ staticRef = varE . staticName
 --
 -- Be sure to pass the argument to 'mkStaticTab' so the referent exists.
 --
--- This is useful for referring to the key inside the definition of the value
--- itself, e.g. inside a recursive function or mutually-recursive functions.
---
--- Note: this omits the type of the value, so the caller is responsible for
--- using it with a value of the correct associated type. If this is not done,
--- then a later attempt at runtime to resolve this in a static table will cause
--- a 'Control.Static.Serialise.SKeyedExtDecodeFailure'.
---
--- One way of recovering compile-time type safety is to ensure that an instance
--- of 'RepVal g v k' exists only for your desired @g@ @v@ and @k@, but this may
--- be less convenient than defining a generic instance for all @k@.
+-- You should not need this in most cases; 'staticRef' is more type-safe as it
+-- includes the type of the value, and this does not. The main case in which
+-- you may need this, is to construct an environment-table to pass to
+-- 'Control.Static.Closure.mkClosureTab', which will enforce type safety.
 staticKey :: Name -> Q Exp
 staticKey name = [| sing @ $(symFQN name) |]
 
@@ -68,17 +102,26 @@ staticKeyType = symFQN
 
 -- Internal
 
-createMetaData :: Name -> [TyVarBndr] -> [Q Type] -> [Q Type] -> [Q Exp] -> Q [Dec]
-createMetaData name tyVars keys vals is = sequence
+createStatics :: Maybe Name -> [(Name, Type)] -> Q [Dec]
+createStatics tabName sigs = do
+  (closures, tyVars, keys, vals, inserts) <- unzip5 <$> mapM genStaticDefs sigs
+  staticTab <- maybe (pure [])
+                     (\n -> genStaticTab n (concat tyVars) keys vals inserts)
+                     tabName
+  pure $ concat closures <> staticTab
+
+genStaticTab :: Name -> [TyVarBndr] -> [Q Type] -> [Q Type] -> [Q Exp] -> Q [Dec]
+genStaticTab name tyVars keys vals is = sequence
   [ sigD name $ do
     ForallT tyVars [] <$> [t| TTab $(tyList keys) $(tyList vals) |]
   , sfnD name $ apList is [| TCNil |]
   ]
 
-generateDefs :: (Name, Type) -> Q ([Dec], [TyVarBndr], Q Type, Q Type, Q Exp)
-generateDefs (fullName, fullType) = do
+genStaticDefs :: (Name, Type) -> Q ([Dec], [TyVarBndr], Q Type, Q Type, Q Exp)
+genStaticDefs (fullName, fullType) = do
   tyTval <- [t| SKeyedInternal |]
   tyCxtw <- [t| CxtW |]
+  --fail $ show fullType
   let (tyVars', tyCxt', typ') = case fullType of
         ForallT vars cxt' mono -> (vars, cxt', mono)
         _                      -> ([], [], fullType)
@@ -96,8 +139,7 @@ generateDefs (fullName, fullType) = do
   -- this means it wants the staticRef passed in as an argument, so arrange for
   -- that to be done later too.
   --
-  -- TODO: maybe we actually don't need this, now that we have 'staticKey'.
-  -- however it is a bit more type-safe than 'staticKey'.
+  -- TODO: we probably don't need this, now that we have 'mkStaticsWithRefs'.
   let
     fixVal mk n = appE (mk n) (staticRef n)
     (maybeFix, tyVars, typ) = case typ' of
@@ -115,12 +157,15 @@ generateDefs (fullName, fullType) = do
   let tyK   = symFQN fullName
   let tyV   = maybeCxtTy typ
   let name  = staticName fullName
-  static <- sequence
+
+  -- define the static only if it wasn't already defined, e.g. via mkStaticsWithRefs
+  static <- flip recover (reify name $> []) $ sequence
     [ sigD name $ ForallT tyVars [] <$> [t| SKeyedInternal $(tyK) $(tyV) |]
     , sfnD name [| SKeyedInternal sing $(mkVal fullName) |]
     ]
   pure (static, tyVars, tyK, tyV, [| tcCons $(staticRef fullName) |])
 
+-- | Helper function for building 'TCTab's.
 tcCons
   :: (c @@ k @@ v)
   => SKeyedInternal k v
@@ -133,16 +178,19 @@ staticName n = mkName $ nameBase n ++ "__static"
 
 -- Utils
 
+-- | Apply a list of expressions to a base expression.
 apList :: [Q Exp] -> Q Exp -> Q Exp
 apList []       base = base
 apList (e : es) base = [| $e $ $(apList es base) |]
 
+-- | Construct a promoted-list of types.
 tyList :: [Q Type] -> Q Type
 tyList []       = promotedNilT
 tyList (h : tl) = do
   ty <- h
   (PromotedConsT `AppT` ty `AppT`) <$> tyList tl
 
+-- | Convert a context (a list of types) to a single type.
 cxtToType :: Cxt -> Type
 cxtToType cxt' = case cxt' of
   []  -> TupleT 0
@@ -158,6 +206,19 @@ getType name = do
   case info of
     VarI origName typ _ -> pure (origName, typ)
     _                   -> fail $ show name ++ " not a type: " ++ show info
+
+-- | Extract type info from top-level decls without using 'reify'.
+sigsOf :: [Dec] -> [(Name, Type)]
+sigsOf []              = []
+sigsOf (SigD n t : tl) = (n, simplifyType t) : sigsOf tl
+sigsOf (_        : tl) = sigsOf tl
+
+-- | Simplify a source-level type. This attempts to do what 'reify' does but
+-- without needing the definition to exist at the splice point.
+simplifyType :: Type -> Type
+simplifyType (ForallT t0 c0 (ForallT t1 c1 t)) =
+  simplifyType (ForallT (t0 <> t1) (c0 <> c1) t)
+simplifyType t = t
 
 -- | Variation on 'funD' which takes a single expression to define the function
 sfnD :: Name -> Q Exp -> Q Dec
