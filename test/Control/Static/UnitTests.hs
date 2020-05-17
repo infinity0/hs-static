@@ -24,13 +24,13 @@ import           Control.Monad.RWS.Strict   (RWST (..), evalRWST)
 import           Control.Monad.State.Class  (MonadState (..))
 import           Control.Monad.Writer.Class (MonadWriter (..))
 import           Control.Static             (ClosureApply, DSerialise,
-                                             NullC2Sym0, RepVal (..),
-                                             TCTab (..), applyClosure,
+                                             RepVal (..), applyClosure,
+                                             envTabCons, envTabNil,
                                              evalSomeClosure, mkClosureTab,
                                              repClosureTab)
 import           Control.Static.TH          (mkDefStaticTab, mkStatics,
-                                             mkStaticsWithRefs, staticKey,
-                                             staticKeyType, staticRef)
+                                             mkStaticsWithRefs, staticKeyType,
+                                             staticRef)
 
 -- These unit tests are written to showcase all the features & possibilities of
 -- using this library. It is certainly not the simplest way of achieving what
@@ -189,11 +189,11 @@ runAllTasks mkEnv evalT initCl expectRuns expectLogs = do
   closureTab =
     repClosureTab @_ @g
       $ mkClosureTab staticTab
-      $ TCCons $(staticKey 'writeLog)    ()
-      $ TCCons $(staticKey 'collatz)     (mkEnv "collatz")
-      $ TCCons $(staticKey 'collatzOdd)  (mkEnv "collatzOdd")
-      $ TCCons $(staticKey 'collatzEven) (mkEnv "collatzEven")
-      $ TCNil @NullC2Sym0
+      $ envTabCons $(staticRef 'writeLog)    ()
+      $ envTabCons $(staticRef 'collatz)     (mkEnv "collatz")
+      $ envTabCons $(staticRef 'collatzOdd)  (mkEnv "collatzOdd")
+      $ envTabCons $(staticRef 'collatzEven) (mkEnv "collatzEven")
+      $ envTabNil
 
 tests :: TestTree
 tests = testGroup

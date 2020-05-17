@@ -17,6 +17,7 @@ module Control.Static.Closure where
 
 -- external
 import           Data.Constraint          (Dict (..))
+import           Data.Functor             (($>))
 import           Data.Kind                (Constraint)
 import           Data.Singletons.Prelude
 import           Data.Singletons.TH       (genDefunSymbols)
@@ -38,16 +39,25 @@ import           Control.Static.Static
 type ClosureFunc cxt env arg res = CxtW cxt (env -> arg -> res)
 
 -- | An applied closure, consisting of its static key and an argument.
-type ClosureApply g = SKeyedExternal g
+type ClosureApply g = SKeyedExt g
 
 -- | Create a 'ClosureApply' in its serialisable static form.
 applyClosure
   :: RepVal g arg k
-  => SKeyedInternal k (CxtW cxt (env -> arg -> res))
+  => SKeyed k (CxtW cxt (env -> arg -> res))
   -> arg
   -> ClosureApply g
-applyClosure (SKeyedInternal k cl) arg =
-  skeyedInternalToExternal (SKeyedInternal k arg)
+applyClosure (SKeyed k cl) arg = toSKeyedExt (SKeyed k arg)
+
+envTabCons
+  :: SKeyed k (CxtW cxt (env -> arg -> res))
+  -> env
+  -> TTab kk vv
+  -> TTab (k ': kk) (env ': vv)
+envTabCons cl env = skeyedCons (cl $> env)
+
+envTabNil :: TTab '[] '[]
+envTabNil = TCNil @NullC2Sym0
 
 -- | A pre-closure is a function that takes two statically-known arguments:
 -- a constraint, and an explicit argument; and gives a closure.
@@ -94,7 +104,7 @@ instance PostClosure x (r -> x) where
 genDefunSymbols [''Cxt, ''Env, ''Part, ''Arg, ''Res, ''Pre]
 
 
--- | A continuation from the result type to 'x'.
+-- | A continuation from the result type to @x@.
 type ResCont x = TyContSym1 x .@#@$$$ ResSym0
 
 
@@ -132,7 +142,7 @@ applyClosureTabPost res post =
 -- | Apply a table of closures to a table of inputs and post-closures, giving a
 -- table of values.
 --
--- This method is just a demo, you probably want 'withEvalClosure' instead.
+-- This method is just a demo, users will want one of the exported functions.
 evalClosureTab
   :: forall (kk :: [Symbol]) vv x
    . TCTab' Closure kk vv
@@ -206,11 +216,11 @@ repClosureTab = strengthenTC . strengthenTC
 -- giving a single result (if the input key was found).
 --
 -- This is the statically-typed version; for a version that runs for unknown
--- keys see 'withEvalSomeClosure'.
+-- keys see 'withEvalSomeClosureCts'.
 withEvalClosureCts
   :: forall c g (k :: Symbol) (kk :: [Symbol]) vv x
    . TCTab (RepClosure c g) kk vv
-  -> SKeyedInternal k g
+  -> SKeyed k g
   -> TCTab' (PostClosure x) kk (Fmap (ResCont x) vv)
   -> Either SKeyedError x
 withEvalClosureCts tab val post = gwithStatic @_ @_ @(ResCont x) tab val post
@@ -228,12 +238,17 @@ withEvalSomeClosureCts
   -> TCTab' (PostClosure x) kk (Fmap (ResCont x) vv)
   -> Either SKeyedError x
 withEvalSomeClosureCts tab ext post =
-  withSKeyedExternal ext $ \val -> withEvalClosureCts tab val post
+  withSKeyedExt ext $ \val -> withEvalClosureCts tab val post
 
+-- | Apply a closure table to a single input, and pass the constrained result
+-- to a continuation (if the input key was found).
+--
+-- This is the statically-typed version; for a version that runs for unknown
+-- keys see 'withEvalSomeClosureCxt'.
 withEvalClosureCxt
   :: forall c f g (k :: Symbol) (kk :: [Symbol]) vv r
    . TCTab (RepClosure c g) kk vv
-  -> SKeyedInternal k g
+  -> SKeyed k g
   -> (  forall k' v
       . 'Just '(k', v) ~ LookupKV k kk vv
      => ProofLookupKV f k kk vv
@@ -243,6 +258,11 @@ withEvalClosureCxt
 withEvalClosureCxt tab val go =
   withStaticCxt @_ @f tab val $ \k' cl a -> go k' (apply cl a)
 
+-- | Apply a closure table to a single input, and pass the constrained result
+-- to a continuation (if the input key was found).
+--
+-- This is the dynamically-typed version; for a version that type-checks for
+-- statically-known keys see 'withEvalClosureCxt'.
 withEvalSomeClosureCxt
   :: forall c f g (kk :: [Symbol]) vv r
    . TCTab (RepClosure c g) kk vv
@@ -255,23 +275,23 @@ withEvalSomeClosureCxt
      => (c @@ k' @@ Res v) => Sing k' -> Res v -> r
      )
   -> Either SKeyedError r
-withEvalSomeClosureCxt tab ext go = withSKeyedExternal ext
-  $ \(val :: SKeyedInternal k g) -> withEvalClosureCxt @_ @f tab val (go @k)
+withEvalSomeClosureCxt tab ext go = withSKeyedExt ext
+  $ \(val :: SKeyed k g) -> withEvalClosureCxt @_ @f tab val (go @k)
 
--- | Evaluate a closure application with known type, against a table of
--- closures, that all have the same result type.
+-- | Evaluate a closure application with statically-known type, against a table
+-- of closures, that all have the same result type.
 evalClosure
   :: forall g (k :: Symbol) (kk :: [Symbol]) vv r
    . TCTab (RepClosure' r g) kk vv
-  -> SKeyedInternal k g
+  -> SKeyed k g
   -> Either SKeyedError r
 evalClosure tab val = withEvalClosureCxt tab val $ const id
 
--- | Evaluate a closure application with unknown type, against a table of
--- closures, that all have the same result type.
+-- | Evaluate a closure application with statically-unknown type, against a
+-- table of closures, that all have the same result type.
 evalSomeClosure
   :: forall g (kk :: [Symbol]) vv r
    . TCTab (RepClosure' r g) kk vv
   -> ClosureApply g
   -> Either SKeyedError r
-evalSomeClosure tab ext = withSKeyedExternal ext $ evalClosure tab
+evalSomeClosure tab ext = withSKeyedExt ext $ evalClosure tab

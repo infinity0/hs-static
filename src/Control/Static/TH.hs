@@ -19,16 +19,16 @@ module Control.Static.TH
 where
 
 -- external
-import           Control.Concurrent.MVar  (newEmptyMVar, putMVar, takeMVar)
-import           Data.Functor             (($>))
-import           Data.List                (unzip5)
-import           Data.Singletons          (type (@@), sing)
-import           GHC.IO.Unsafe            (unsafeDupableInterleaveIO)
+import           Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import           Data.Functor            (($>))
+import           Data.List               (unzip5)
+import           Data.Singletons         (sing)
+import           GHC.IO.Unsafe           (unsafeDupableInterleaveIO)
 import           Language.Haskell.TH
 
 -- internal
-import           Control.Static.Common    (CxtW (..), TCTab (..), TTab)
-import           Control.Static.Serialise (SKeyedInternal (..))
+import           Control.Static.Common   (CxtW (..), TCTab (..), TTab)
+import           Control.Static.Static   (SKeyed (..), skeyedCons)
 
 
 -- | Needed for 'mkStaticsWithRefs', definition taken from
@@ -80,23 +80,22 @@ mkDefStaticTab = mkStaticTab defaultStaticTab
 mkStaticTab :: Name -> [Name] -> Q [Dec]
 mkStaticTab tabName ns = mapM getType ns >>= createStatics (Just tabName)
 
--- | Refer to a static value, as a 'SKeyedInternal'.
+-- | Refer to a static value, as a 'SKeyed'.
 --
 -- Be sure to pass the argument to 'mkStaticTab' so the referent exists.
 staticRef :: Name -> Q Exp
 staticRef = varE . staticName
 
--- | Get the symbol key of a static value, as a 'SKey'.
+-- | Get the symbol key of a static value, as a 'Control.Static.SKey'.
 --
 -- Be sure to pass the argument to 'mkStaticTab' so the referent exists.
 --
--- You should not need this in most cases; 'staticRef' is more type-safe as it
--- includes the type of the value, and this does not. The main case in which
--- you may need this, is to construct an environment-table to pass to
--- 'Control.Static.Closure.mkClosureTab', which will enforce type safety.
+-- Users typically don't need this; 'staticRef' is more type-safe as it
+-- includes the type of the value, and this does not.
 staticKey :: Name -> Q Exp
 staticKey name = [| sing @ $(symFQN name) |]
 
+-- | Get the symbol key type of a static value, as a type-level string.
 staticKeyType :: Name -> Q Type
 staticKeyType = symFQN
 
@@ -119,7 +118,7 @@ genStaticTab name tyVars keys vals is = sequence
 
 genStaticDefs :: (Name, Type) -> Q ([Dec], [TyVarBndr], Q Type, Q Type, Q Exp)
 genStaticDefs (fullName, fullType) = do
-  tyTval <- [t| SKeyedInternal |]
+  tyTval <- [t| SKeyed |]
   tyCxtw <- [t| CxtW |]
   --fail $ show fullType
   let (tyVars', tyCxt', typ') = case fullType of
@@ -134,8 +133,8 @@ genStaticDefs (fullName, fullType) = do
         _  -> (cxtVal, \typ -> pure (tyCxtw `AppT` tyCxt1 `AppT` typ))
 
   -- If the type is of the special forms
-  --   - (SKeyedInternal s T -> T) or
-  --   - (C => SKeyedInternal s (CxtW C T) -> T)
+  --   - (SKeyed s T -> T) or
+  --   - (C => SKeyed s (CxtW C T) -> T)
   -- this means it wants the staticRef passed in as an argument, so arrange for
   -- that to be done later too.
   --
@@ -160,18 +159,10 @@ genStaticDefs (fullName, fullType) = do
 
   -- define the static only if it wasn't already defined, e.g. via mkStaticsWithRefs
   static <- flip recover (reify name $> []) $ sequence
-    [ sigD name $ ForallT tyVars [] <$> [t| SKeyedInternal $(tyK) $(tyV) |]
-    , sfnD name [| SKeyedInternal sing $(mkVal fullName) |]
+    [ sigD name $ ForallT tyVars [] <$> [t| SKeyed $(tyK) $(tyV) |]
+    , sfnD name [| SKeyed sing $(mkVal fullName) |]
     ]
-  pure (static, tyVars, tyK, tyV, [| tcCons $(staticRef fullName) |])
-
--- | Helper function for building 'TCTab's.
-tcCons
-  :: (c @@ k @@ v)
-  => SKeyedInternal k v
-  -> TCTab c kk vv
-  -> TCTab c (k ': kk) (v ': vv)
-tcCons (SKeyedInternal k v) = TCCons k v
+  pure (static, tyVars, tyK, tyV, [| skeyedCons $(staticRef fullName) |])
 
 staticName :: Name -> Name
 staticName n = mkName $ nameBase n ++ "__static"

@@ -95,7 +95,8 @@ Description:
   languages. Supporting AST statics would therefore unnecessarily restrict how
   we can implement the behaviour of a static closure in our chosen language.
 
-  See unit tests for example usage.
+  See unit tests for example usage, e.g.
+  <https://github.com/infinity0/hs-static/tree/master/test/Control/Static/UnitTests.hs UnitTests>
 Homepage:            https://github.com/infinity0/hs-static
 Bug-Reports:         https://github.com/infinity0/hs-static/issues
 License:             GPL-3.0-or-later

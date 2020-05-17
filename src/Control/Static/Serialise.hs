@@ -1,6 +1,7 @@
 {-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
@@ -14,71 +15,33 @@
 module Control.Static.Serialise where
 
 -- external
-import qualified Codec.Serialise         as SR
-import qualified Data.Binary             as BN
-import qualified Data.ByteString.Lazy    as LBS
+import qualified Codec.Serialise      as SR
+import qualified Data.Binary          as BN
+import qualified Data.ByteString.Lazy as LBS
 
-import           Codec.Serialise         (Serialise)
-import           Data.Binary             (Binary)
-import           Data.Dynamic            (Dynamic, fromDynamic, toDyn)
-import           Data.Kind               (Type)
-import           Data.Singletons.Prelude (Sing, Symbol, fromSing, withSomeSing)
-import           Data.Singletons.TH      (genDefunSymbols)
-import           Data.Text               (pack, unpack)
-import           GHC.Generics            (Generic)
-import           Type.Reflection         ((:~~:) (..), TypeRep, Typeable,
-                                          eqTypeRep, typeRep)
+import           Codec.Serialise      (Serialise)
+import           Data.Binary          (Binary)
+import           Data.Dynamic         (Dynamic, fromDynamic, toDyn)
+import           Data.Kind            (Type)
+import           Data.Singletons      (Sing)
+import           Data.Singletons.TH   (genDefunSymbols)
+import           GHC.Generics         (Generic)
+import           Type.Reflection      ((:~~:) (..), TypeRep, Typeable,
+                                       eqTypeRep, typeRep)
 
-
--- | Standalone static key with no associated value.
---
--- You normally don't need to use this, and should use 'SKeyedInternal' or
--- 'SKeyedExternal' as appropriate. One exception is where your static value
--- definitions need to refer to other static values, then you'll have to use
--- 'Control.Static.TH.staticKey' which produces one of these.
---
--- See unit tests for an example.
-type SKey (k :: Symbol) = Sing k
-
--- | Internal value, typed-indexed by an associated static-key.
---
--- Generally, @v@ is not expected to be serialisable or otherwise representable
--- outside of the program. For cases where it is, you should define an instance
--- of 'RepVal'. That then enables you to use 'skeyedInternalToExternal' and
--- other utility functions with this constraint.
-data SKeyedInternal k v = SKeyedInternal !(SKey k) !v
 
 -- | Serialisable external value, with an associated static-key.
 --
 -- @g@ is a type that can generically represent all the external interface of
 -- your static values. See 'RepVal' and 'DoubleEncoding' for more details.
-data SKeyedExternal g = SKeyedExternal !String !g
-  deriving (Read, Show, Generic, Binary, Serialise, Eq, Ord)
-
--- | Similar to 'withSomeSing' for a 'SKeyedExternal', extract the type from
--- the 'String' key and run a typed function on the typed value.
-withSKeyedExternal
-  :: SKeyedExternal g -> (forall (a :: Symbol) . SKeyedInternal a g -> r) -> r
-withSKeyedExternal (SKeyedExternal s a) f =
-  withSomeSing (pack s) $ \k -> f (SKeyedInternal k a)
-
--- | Convert an internal value to an external value, depending on the existence
--- of an instance of 'RepVal' to help perform the conversion.
-skeyedInternalToExternal :: RepVal g v k => SKeyedInternal k v -> SKeyedExternal g
-skeyedInternalToExternal (SKeyedInternal k v) =
-  SKeyedExternal (unpack (fromSing k)) (toRep k v)
+data SKeyedExt g = SKeyedExt !String !g
+  deriving (Read, Show, Generic, Binary, Serialise, Eq, Ord, Functor)
 
 -- | Possible errors when resolving a key in a static table.
 data SKeyedError =
    SKeyedNotFound String
  | SKeyedExtDecodeFailure String
  deriving (Read, Show, Generic, Binary, Serialise, Eq, Ord)
-
-toSKeyedEither
-  :: Sing (k :: Symbol) -> Maybe (Either String v) -> Either SKeyedError v
-toSKeyedEither k Nothing          = Left $ SKeyedNotFound $ unpack $ fromSing k
-toSKeyedEither _ (Just (Left  e)) = Left $ SKeyedExtDecodeFailure e
-toSKeyedEither _ (Just (Right v)) = Right v
 
 -- | A value and its external representation, indexed by some key.
 class RepVal g (v :: Type) (k :: kt) where

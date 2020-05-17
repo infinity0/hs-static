@@ -2,14 +2,13 @@ module Control.Static
   (
   -- * Common definitions
     TCTab(..)
-  , TTab
-  , NullC2Sym0
   -- * Static keys and values
   , SKey
-  , SKeyedInternal(..)
-  , SKeyedExternal(..)
-  , withSKeyedExternal
-  , skeyedInternalToExternal
+  , SKeyed(..)
+  , SKeyedExt(..)
+  , withSKeyedExt
+  , toSKeyedExt
+  -- * Static tables and resolving values
   , gwithStatic
   , withStaticCts
   , withSomeStaticCts
@@ -21,6 +20,8 @@ module Control.Static
   , PostClosure(..)
   , ClosureApply
   , applyClosure
+  , envTabCons
+  , envTabNil
   , mkClosureTab
   , RepClosure
   , RepClosure'
