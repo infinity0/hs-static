@@ -1,6 +1,6 @@
 Cabal-Version:       3.0
 Name:                static
-Version:             0.1.0.0
+Version:             0.1.0.1
 Synopsis:            Type-safe and interoperable static values and closures
 Description:
   Serialise closures in a type-safe way that interoperates across binaries.
@@ -105,7 +105,7 @@ Author:              Ximin Luo
 Maintainer:          infinity0@pwned.gg
 Copyright:           2020 Ximin Luo
 Category:            Control, Static, Closure
-Tested-With:         GHC >= 8.8.3
+Tested-With:         GHC >= 8.10.1
 Extra-Source-Files:  CHANGELOG.md
 
 Source-Repository head
@@ -122,10 +122,12 @@ Common generic
   Build-Depends: base >= 4 && < 5,
   GHC-Options:
     -Wall
+    -Wcompat
     -Wno-unused-matches
     -Wredundant-constraints
     -Wincomplete-record-updates
     -Wincomplete-uni-patterns
+    -Wunused-packages
   if flag(dev)
     GHC-Options:
       -Werror
@@ -161,7 +163,6 @@ Test-Suite doctests
   GHC-Options: -threaded
   Build-Depends:
       doctest
-    , static
   HS-Source-Dirs: test
   Type: exitcode-stdio-1.0
   Main-Is: DocTests.hs
@@ -171,11 +172,8 @@ Test-Suite unit
   GHC-Options: -threaded
   Build-Depends:
       tasty
-    , tasty-quickcheck
     , tasty-hunit
-    , checkers
     , static
-    , lens
     , mtl
     , transformers
   HS-Source-Dirs: test

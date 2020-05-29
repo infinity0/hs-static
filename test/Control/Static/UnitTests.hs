@@ -13,6 +13,8 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TypeApplications      #-}
 
+{-# OPTIONS_GHC -Wno-error=incomplete-uni-patterns #-}
+
 module Control.Static.UnitTests where
 
 -- external, testing
