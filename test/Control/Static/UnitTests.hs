@@ -39,10 +39,10 @@ import           Control.Static.TH          (mkDefStaticTab, mkStatics,
 -- it is actually doing. When using this library, bear this in mind and don't
 -- just blindly copy the below - aim to simplify as much of it as possible.
 
-data TEnv m g = TEnv {
-    pushTask :: !(ClosureApply g -> m ())
+data TEnv m g = TEnv
+  { pushTask :: !(ClosureApply g -> m ())
   , pushLog  :: !(String -> m ())
-}
+  }
 
 writeLog :: MonadWriter [String] m => () -> String -> m [Int]
 writeLog _ x = tell [x] >> pure []

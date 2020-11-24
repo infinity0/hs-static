@@ -40,7 +40,7 @@ type SKey (k :: Symbol) = Sing k
 -- of 'RepVal'. That then enables you to use 'toSKeyedExt' and
 -- other utility functions with this constraint.
 data SKeyed k v = SKeyed !(SKey k) !v
- deriving Functor
+  deriving Functor
 
 -- | Similar to 'withSomeSing' for a 'SKeyedExt', extract the type from
 -- the 'String' key and run a typed function on the typed value.
@@ -126,7 +126,7 @@ withStaticCts
   -> TCTab c1 kk (Fmap (TyContIXSym2 r ext) vv)
   -> Either SKeyedError r
 withStaticCts tab val post =
-  gwithStatic @_ @_ @(TyContIXSym2 r ext) tab val post (flip const)
+  gwithStatic @_ @_ @(TyContIXSym2 r ext) tab val post (const id)
 
 withSomeStaticCts
   :: forall c0 c1 g ext (kk :: [Symbol]) vv r

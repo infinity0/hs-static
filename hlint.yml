@@ -3,9 +3,15 @@
 - ignore: {name: Redundant $}
 
 # Too sensitive
-- ignore: {name: Use newtype instead of data}
+- ignore: {name: Reduce duplication}
 - ignore: {name: Use camelCase}
+- ignore: {name: Use newtype instead of data}
 
 # Too pointless / trivial / subjective
+- ignore: {name: Use hPrint}
 - ignore: {name: Use isNothing}
 - ignore: {name: Use <}
+
+- modules:
+  - {name: Control.Lens, badidents: [At, Ixed, at, ix, sans], message: "Use versions from our Control.Lens.Strict instead"}
+  - {name: Codec.Serialise, badidents: [deserialise, deserialiseOrFail], message: "Use deserialiseFullyOrFail instead"}

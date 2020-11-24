@@ -128,7 +128,7 @@ instance Serialise DSerialise where
 instance (Typeable v, Serialise v) => RepVal DSerialise v k where
   toRep _ = Decoded
   fromRep _ (Decoded     v) = castOrFail v
-  fromRep _ (HalfEncoded s) = case SR.deserialiseOrFail s of
+  fromRep _ (HalfEncoded s) = case SR.deserialiseFullyOrFail s of
     Left  e -> Left (show e)
     Right v -> Right v
 

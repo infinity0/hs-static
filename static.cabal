@@ -146,7 +146,7 @@ Library
     -- for serialisation
     , binary
     , bytestring
-    , serialise
+    , serialise                (>= 0.2.4.0)
     -- Control.Static.TH
     , template-haskell
   HS-Source-Dirs: src
