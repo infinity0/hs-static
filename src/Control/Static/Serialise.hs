@@ -27,8 +27,8 @@ import           Data.Kind            (Type)
 import           Data.Singletons      (Sing)
 import           Data.Singletons.TH   (genDefunSymbols)
 import           GHC.Generics         (Generic)
-import           Type.Reflection      ((:~~:) (..), TypeRep, Typeable,
-                                       eqTypeRep, typeRep)
+import           Type.Reflection      (TypeRep, Typeable, eqTypeRep, typeRep,
+                                       (:~~:) (..))
 
 
 -- | Serialisable external value, with an associated static-key.

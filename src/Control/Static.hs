@@ -38,8 +38,7 @@ module Control.Static
   , DoubleEncoding(..)
   , DSerialise
   , DBinary
-  )
-where
+  ) where
 
 import           Control.Static.Closure
 import           Control.Static.Common

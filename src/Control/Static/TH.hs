@@ -15,8 +15,7 @@ module Control.Static.TH
   , mkStaticTab
   -- special utils some users might need
   , CxtW(..)
-  )
-where
+  ) where
 
 -- external
 import           Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)

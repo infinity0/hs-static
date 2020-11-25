@@ -18,7 +18,7 @@
 module Control.Static.Common where
 
 -- external
-import           Data.Constraint         ((:-) (..), Class (..), Dict (..))
+import           Data.Constraint         (Class (..), Dict (..), (:-) (..))
 import           Data.Kind               (Constraint, Type)
 import           Data.Singletons.Prelude
 import           Data.Singletons.TH      (genDefunSymbols, singletons)
